@@ -1,0 +1,54 @@
+name: Build Windows x64
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup MSBuild
+        uses: microsoft/setup-msbuild@v2
+
+      - name: Download CEF SDK
+        shell: pwsh
+        run: |
+          $url = "https://cef-builds.spotifycdn.com/cef_binary_80.1.16%2Bg1c446e7%2Bchromium-80.0.3987.163_windows64.tar.bz2"
+          $output = "cef_sdk.tar.bz2"
+          Write-Host "Downloading CEF SDK..."
+          [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+          Invoke-WebRequest -Uri $url -OutFile $output -UseBasicParsing
+          Write-Host "Downloaded. Extracting..."
+          tar xf $output
+          $cefDir = Get-ChildItem -Directory -Filter "cef_binary_*" | Select-Object -First 1
+          Rename-Item $cefDir.FullName cef_binary
+          Write-Host "CEF SDK ready."
+
+      - name: Build with CMake
+        shell: pwsh
+        run: |
+          cmake -B build -G "Visual Studio 17 2022" -A x64
+          cmake --build build --config Release
+
+      - name: Package Release
+        shell: pwsh
+        run: |
+          $pkg = "DouyinSessionTool-Windows-x64"
+          New-Item -ItemType Directory -Path $pkg -Force
+          Copy-Item "build/Release/DouyinSessionTool.exe" "$pkg/"
+          Copy-Item "cef_binary/Release/*.dll" "$pkg/"
+          Copy-Item "cef_binary/Resources/*.pak" "$pkg/"
+          Copy-Item "cef_binary/Resources/*.dat" "$pkg/"
+          Copy-Item "cef_binary/Resources/*.bin" "$pkg/"
+          Copy-Item "cef_binary/Resources/locales" "$pkg/locales" -Recurse
+          Compress-Archive -Path "$pkg/*" -DestinationPath "$pkg.zip"
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: DouyinSessionTool-Windows-x64
+          path: DouyinSessionTool-Windows-x64.zip
